@@ -1,0 +1,68 @@
+import os
+import httpx
+import logging
+import uvicorn
+from fastapi import FastAPI, HTTPException, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, HttpUrl
+from typing import List
+from urllib.parse import urlparse
+from dotenv import load_dotenv
+
+load_dotenv()
+os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+
+AUTH_TOKEN = os.getenv("HACKBOX_AUTH_TOKEN")
+security_scheme = HTTPBearer()
+
+from modules.vector_store import build_vector_store
+from modules.retriever_chain import get_answers_as_json
+
+class HackRXRequest(BaseModel):
+    documents: HttpUrl
+    questions: List[str]
+
+class HackRXResponse(BaseModel):
+    answers: List[str]
+
+app = FastAPI()
+
+def validate_token(credentials: HTTPAuthorizationCredentials = Security(security_scheme)):
+    if not AUTH_TOKEN:
+        raise HTTPException(status_code=500, detail="Missing AUTH token on server.")
+    if credentials.scheme != "Bearer" or credentials.credentials != AUTH_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid or missing Bearer token")
+    return True
+
+@app.post("/api/v1/hackrx/run", response_model=HackRXResponse)
+async def process_document_and_answer(
+    request: HackRXRequest,
+    is_authenticated: bool = Security(validate_token)
+):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(str(request.documents))
+            response.raise_for_status()
+            file_bytes = response.content
+
+        parsed_url = urlparse(str(request.documents))
+        file_name = os.path.basename(parsed_url.path)
+        if not file_name.endswith((".pdf", ".docx")):
+            file_name = "input.pdf"
+            
+            
+        vector_store = await build_vector_store(file_bytes, file_name)
+
+        json_response = await get_answers_as_json(request.questions, vector_store)
+
+        return HackRXResponse(answers=json_response["answers"])
+
+    except httpx.RequestError as e:
+        logging.error(f"Document download error: {e}")
+        raise HTTPException(status_code=400, detail=f"Could not access document at URL: {request.documents}")
+    except Exception as e:
+        logging.exception("Internal error during /hackrx/run")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

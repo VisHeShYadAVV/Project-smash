@@ -1,0 +1,28 @@
+# requirements.txt
+streamlit
+langchain
+langchain-core
+langchain-openai
+langchain-community
+faiss-cpu
+PyMuPDF
+python-docx
+python-dotenv
+nest_asyncio
+httpx
+openai
+# requirements.txt 
+streamlit
+langchain
+langchain-core
+langchain-openai
+langchain-community
+faiss-cpu
+PyMuPDF
+python-docx
+python-dotenv
+nest_asyncio
+httpx
+openai
+fastapi  
+uvicorn  
