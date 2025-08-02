@@ -1,3 +1,4 @@
+# modules/prompt.py
 prompt_template = """
 You are an expert assistant for analyzing legal and insurance documents.
 Answer all user questions strictly based on the context.
