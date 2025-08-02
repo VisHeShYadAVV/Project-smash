@@ -9,38 +9,32 @@ from typing import List
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
-# --- Load and Debug ENV ---
-load_dotenv()
-
-OPENAI_API_KEY_RAW = os.getenv("OPENAI_API_KEY", "")
-AUTH_TOKEN_RAW = os.getenv("HACKBOX_AUTH_TOKEN", "")
-
-# Debug print the env values
-print("🔐 Raw OPENAI_API_KEY:", repr(OPENAI_API_KEY_RAW))
-print("🔐 Raw AUTH_TOKEN:", repr(AUTH_TOKEN_RAW))
-
-# Clean and assign
-OPENAI_API_KEY = OPENAI_API_KEY_RAW.strip().lstrip("=").replace("\n", "")
-AUTH_TOKEN = AUTH_TOKEN_RAW.strip()
-
-# Set for OpenAI SDKs
-os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
-
-# Log confirmation
-print("✅ Final OPENAI_API_KEY (first 10 chars):", repr(OPENAI_API_KEY[:10]))
-print("✅ Final AUTH_TOKEN:", repr(AUTH_TOKEN))
-
-if not AUTH_TOKEN:
-    raise RuntimeError("❌ HACKBOX_AUTH_TOKEN is not set or cleaned properly!")
-
-# --- Security setup ---
-security_scheme = HTTPBearer(auto_error=False)
-
-# --- Your modules ---
 from modules.vector_store import build_vector_store
 from modules.retriever_chain import get_answers_as_json
 
-# --- Pydantic Models ---
+# Load environment variables
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+AUTH_TOKEN = os.getenv("HACKBOX_AUTH_TOKEN", "").strip()
+
+# Validate env values
+if not OPENAI_API_KEY or not OPENAI_API_KEY.startswith("sk-"):
+    raise RuntimeError("❌ OPENAI_API_KEY is missing or invalid!")
+
+if not AUTH_TOKEN:
+    raise RuntimeError("❌ HACKBOX_AUTH_TOKEN is not set!")
+
+# Set the API key for OpenAI
+os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+
+# Logging config
+logging.basicConfig(level=logging.INFO)
+
+# FastAPI and Security
+app = FastAPI()
+security = HTTPBearer(auto_error=False)
+
+# Request and Response models
 class HackRXRequest(BaseModel):
     documents: HttpUrl
     questions: List[str]
@@ -48,64 +42,52 @@ class HackRXRequest(BaseModel):
 class HackRXResponse(BaseModel):
     answers: List[str]
 
-# --- FastAPI App ---
-app = FastAPI()
-
-# --- Token Validation ---
-def validate_token(credentials: HTTPAuthorizationCredentials = Security(security_scheme)):
-    if not credentials:
-        logging.warning("❌ Missing Authorization header")
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
+# Token validation function
+def validate_token(credentials: HTTPAuthorizationCredentials = Security(security)):
+    if not credentials or credentials.scheme != "Bearer":
+        logging.warning("🔒 Missing or invalid Authorization header")
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
 
     incoming_token = credentials.credentials.strip()
-    expected_token = AUTH_TOKEN
-
-    print("🔒 Incoming Bearer Token:", repr(incoming_token))
-    print("🗝️  Expected Bearer Token:", repr(expected_token))
-
-    if credentials.scheme != "Bearer" or incoming_token != expected_token:
-        logging.warning("❌ Bearer token mismatch!")
+    if incoming_token != AUTH_TOKEN:
+        logging.warning("🔑 Invalid token provided")
         raise HTTPException(status_code=401, detail="Invalid or missing Bearer token")
 
     return True
 
-# --- Endpoint ---
+# Endpoint for processing PDF and answering questions
 @app.post("/api/v1/hackrx/run", response_model=HackRXResponse)
 async def process_document_and_answer(
     request: HackRXRequest,
     is_authenticated: bool = Security(validate_token)
 ):
     try:
-        print("📥 Fetching document:", request.documents)
+        # Download document
         async with httpx.AsyncClient() as client:
             response = await client.get(str(request.documents))
             response.raise_for_status()
             file_bytes = response.content
 
-        parsed_url = urlparse(str(request.documents))
+        # Extract filename
+        parsed_url = urlparse(request.documents)
         file_name = os.path.basename(parsed_url.path)
         if not file_name.endswith((".pdf", ".docx")):
             file_name = "input.pdf"
 
-        print("📄 Document downloaded, name:", file_name)
-        print("⚙️  Invoking build_vector_store()")
-
+        # Build vector store and answer
         vector_store = await build_vector_store(file_bytes, file_name)
-
-        print("💬 Getting answers from retriever_chain")
         json_response = await get_answers_as_json(request.questions, vector_store)
 
-        print("✅ Answers generated:", json_response["answers"])
         return HackRXResponse(answers=json_response["answers"])
 
-    except httpx.RequestError as e:
-        logging.error(f"📄 Document download error: {e}")
-        raise HTTPException(status_code=400, detail=f"Could not access document at URL: {request.documents}")
+    except httpx.HTTPError as e:
+        logging.error(f"📥 Failed to fetch document: {e}")
+        raise HTTPException(status_code=400, detail="Could not access the provided document URL")
 
     except Exception as e:
-        logging.exception("💥 Internal error during /hackrx/run")
+        logging.exception("💥 Unexpected internal error")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
-# --- Dev Runner ---
+# Local dev entry point
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
