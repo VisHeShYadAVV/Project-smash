@@ -9,26 +9,31 @@ from typing import List
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
-# --- Load Environment Variables ---
+# --- Load and Debug ENV ---
 load_dotenv()
-OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip().replace("\n", "")
-AUTH_TOKEN = (os.getenv("HACKBOX_AUTH_TOKEN") or "").strip().replace("\n", "")
 
-if not AUTH_TOKEN:
-    raise RuntimeError("❌ HACKBOX_AUTH_TOKEN is not set in environment variables")
+OPENAI_API_KEY_RAW = os.getenv("OPENAI_API_KEY", "")
+AUTH_TOKEN_RAW = os.getenv("HACKBOX_AUTH_TOKEN", "")
 
-if not OPENAI_API_KEY:
-    raise RuntimeError("❌ OPENAI_API_KEY is not set in environment variables")
+# Debug print the env values
+print("🔐 Raw OPENAI_API_KEY:", repr(OPENAI_API_KEY_RAW))
+print("🔐 Raw AUTH_TOKEN:", repr(AUTH_TOKEN_RAW))
 
-# Set as env var for libraries like OpenAI
+# Clean and assign
+OPENAI_API_KEY = OPENAI_API_KEY_RAW.strip().lstrip("=").replace("\n", "")
+AUTH_TOKEN = AUTH_TOKEN_RAW.strip()
+
+# Set for OpenAI SDKs
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 
-# --- Debug logs (can comment these in production) ---
-print("✅ Loaded AUTH_TOKEN:", repr(AUTH_TOKEN))
-print("✅ Loaded OPENAI_API_KEY:", repr(OPENAI_API_KEY[:10]) + "...")
+# Log confirmation
+print("✅ Final OPENAI_API_KEY (first 10 chars):", repr(OPENAI_API_KEY[:10]))
+print("✅ Final AUTH_TOKEN:", repr(AUTH_TOKEN))
 
+if not AUTH_TOKEN:
+    raise RuntimeError("❌ HACKBOX_AUTH_TOKEN is not set or cleaned properly!")
 
-# --- Security Setup ---
+# --- Security setup ---
 security_scheme = HTTPBearer(auto_error=False)
 
 # --- Your modules ---
@@ -49,39 +54,48 @@ app = FastAPI()
 # --- Token Validation ---
 def validate_token(credentials: HTTPAuthorizationCredentials = Security(security_scheme)):
     if not credentials:
+        logging.warning("❌ Missing Authorization header")
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-    incoming_token = credentials.credentials.strip().replace("\n", "")
+    incoming_token = credentials.credentials.strip()
     expected_token = AUTH_TOKEN
 
+    print("🔒 Incoming Bearer Token:", repr(incoming_token))
+    print("🗝️  Expected Bearer Token:", repr(expected_token))
+
     if credentials.scheme != "Bearer" or incoming_token != expected_token:
+        logging.warning("❌ Bearer token mismatch!")
         raise HTTPException(status_code=401, detail="Invalid or missing Bearer token")
 
     return True
 
-# --- API Endpoint ---
+# --- Endpoint ---
 @app.post("/api/v1/hackrx/run", response_model=HackRXResponse)
 async def process_document_and_answer(
     request: HackRXRequest,
     is_authenticated: bool = Security(validate_token)
 ):
     try:
-        # Step 1: Download Document
+        print("📥 Fetching document:", request.documents)
         async with httpx.AsyncClient() as client:
             response = await client.get(str(request.documents))
             response.raise_for_status()
             file_bytes = response.content
 
-        # Step 2: Extract filename
         parsed_url = urlparse(str(request.documents))
-        file_name = os.path.basename(parsed_url.path) or "input.pdf"
+        file_name = os.path.basename(parsed_url.path)
         if not file_name.endswith((".pdf", ".docx")):
             file_name = "input.pdf"
 
-        # Step 3: Vectorize + Answer
+        print("📄 Document downloaded, name:", file_name)
+        print("⚙️  Invoking build_vector_store()")
+
         vector_store = await build_vector_store(file_bytes, file_name)
+
+        print("💬 Getting answers from retriever_chain")
         json_response = await get_answers_as_json(request.questions, vector_store)
 
+        print("✅ Answers generated:", json_response["answers"])
         return HackRXResponse(answers=json_response["answers"])
 
     except httpx.RequestError as e:
@@ -92,6 +106,6 @@ async def process_document_and_answer(
         logging.exception("💥 Internal error during /hackrx/run")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
-# --- Run Locally ---
+# --- Dev Runner ---
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
