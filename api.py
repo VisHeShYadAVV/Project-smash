@@ -1,11 +1,12 @@
 # api.py
+
 import os
 import uvicorn
 import traceback
 import logging
 from fastapi import FastAPI, HTTPException, Request, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from typing import List
 from dotenv import load_dotenv
 
@@ -28,7 +29,7 @@ from modules.retriever_chain import get_answers_as_json
 
 # Pydantic models
 class HackboxRequest(BaseModel):
-    documents: HttpUrl
+    documents: str  # ✅ Changed from HttpUrl to str
     questions: List[str]
 
 class HackboxResponse(BaseModel):
@@ -64,11 +65,11 @@ async def process_request(
         file_name = f"temp_file.{ext}"
         print(f"📄 Inferred file type: {ext}")
 
-        # Step 3: Vector store
+        # Step 3: Build vector store
         vector_store = await build_vector_store(file_bytes, file_name)
         print("✅ Vector store ready")
 
-        # Step 4: Generate answers
+        # Step 4: Get answers
         answers = await get_answers_as_json(request_data.questions, vector_store)
         print("✅ Answers generated successfully")
 
