@@ -1,9 +1,8 @@
-# api.py
-
 import os
 import uvicorn
 import traceback
 import logging
+import time
 from fastapi import FastAPI, HTTPException, Request, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -49,16 +48,19 @@ async def process_request(
         bearer_token = credentials.credentials
         if bearer_token != AUTH_TOKEN:
             raise HTTPException(status_code=403, detail="Invalid Bearer Token")
-
         print("✅ Authenticated request")
+
+        total_start = time.time()
 
         # Step 1: Download document
         import httpx
         print(f"📥 Downloading document from {request_data.documents}")
+        download_start = time.time()
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(request_data.documents)
             response.raise_for_status()
             file_bytes = response.content
+        print(f"✅ Document downloaded in {time.time() - download_start:.2f} sec")
 
         # Step 2: Infer file type
         ext = request_data.documents.split('.')[-1].split('?')[0].lower()
@@ -66,12 +68,16 @@ async def process_request(
         print(f"📄 Inferred file type: {ext}")
 
         # Step 3: Build vector store
+        vector_start = time.time()
         vector_store = await build_vector_store(file_bytes, file_name)
-        print("✅ Vector store ready")
+        print(f"✅ Vector store built in {time.time() - vector_start:.2f} sec")
 
         # Step 4: Get answers
+        answer_start = time.time()
         answers = await get_answers_as_json(request_data.questions, vector_store)
-        print("✅ Answers generated successfully")
+        print(f"✅ Answers generated in {time.time() - answer_start:.2f} sec")
+
+        print(f"✅ Total time: {time.time() - total_start:.2f} sec")
 
         return answers
 
