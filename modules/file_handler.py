@@ -4,7 +4,6 @@ import tempfile
 from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from modules.llm_setup import get_embeddings_model
-from modules.file_handler import extract_text_from_doc
 from langchain.docstore.document import Document
 
 async def build_vector_store(file_bytes: bytes, file_name: str):
