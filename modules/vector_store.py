@@ -21,7 +21,7 @@ async def build_vector_store(file_bytes: bytes, file_name: str):
 
     print(f"📄 Extracted {len(documents)} pages")
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=750, chunk_overlap=100)
     chunks = splitter.split_documents(documents)
     print(f"✂️ Generated {len(chunks)} chunks")
 
