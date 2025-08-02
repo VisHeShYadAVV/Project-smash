@@ -1,15 +1,17 @@
 # modules/vector_store.py
+
 import os
 import tempfile
 from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from modules.llm_setup import get_embeddings_model
 from langchain.docstore.document import Document
+from modules.llm_setup import get_embeddings_model
+from modules.file_handler import extract_text_from_doc  # ✅ FIXED: missing import
 
 async def build_vector_store(file_bytes: bytes, file_name: str):
     print("📥 [VECTOR] Building vector store")
 
-    # Extract text per page
+    # Extract text per page using file_handler.py
     extracted_pages = extract_text_from_doc(file_bytes, file_name)
     if not extracted_pages:
         raise ValueError("❌ No text extracted from document.")
