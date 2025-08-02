@@ -13,7 +13,8 @@ load_dotenv()
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
 AUTH_TOKEN = os.getenv("HACKBOX_AUTH_TOKEN")
-security_scheme = HTTPBearer()
+security_scheme = HTTPBearer(auto_error=False)
+
 
 from modules.vector_store import build_vector_store
 from modules.retriever_chain import get_answers_as_json
@@ -26,12 +27,13 @@ class HackRXResponse(BaseModel):
     answers: List[str]
 
 app = FastAPI()
-
 def validate_token(credentials: HTTPAuthorizationCredentials = Security(security_scheme)):
-    if not AUTH_TOKEN:
-        raise HTTPException(status_code=500, detail="Missing AUTH token on server.")
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+
     if credentials.scheme != "Bearer" or credentials.credentials != AUTH_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid or missing Bearer token")
+    
     return True
 
 @app.post("/api/v1/hackrx/run", response_model=HackRXResponse)
