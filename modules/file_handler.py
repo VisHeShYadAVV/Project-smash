@@ -1,33 +1,25 @@
-# modules/vector_store.py
+# modules/file_handler.py
 
-import os
-import tempfile
-from langchain_community.vectorstores import FAISS
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.docstore.document import Document
-from modules.llm_setup import get_embeddings_model
-from modules.file_handler import extract_text_from_doc  # ✅ FIXED: missing import
+import fitz  # PyMuPDF
+import docx
+import io
+import logging
 
-async def build_vector_store(file_bytes: bytes, file_name: str):
-    print("📥 [VECTOR] Building vector store")
+def extract_text_from_doc(file_bytes: bytes, filename: str) -> dict:
+    """Extracts text from PDF or DOCX files page by page."""
+    file_ext = filename.lower().split('.')[-1]
 
-    # Extract text per page using file_handler.py
-    extracted_pages = extract_text_from_doc(file_bytes, file_name)
-    if not extracted_pages:
-        raise ValueError("❌ No text extracted from document.")
+    if file_ext == 'pdf':
+        pages = {}
+        with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+            for i, page in enumerate(doc):
+                pages[i + 1] = page.get_text()
+        return pages
 
-    documents = []
-    for page_num, page_text in extracted_pages.items():
-        documents.append(Document(page_content=page_text, metadata={"page": page_num}))
+    elif file_ext == 'docx':
+        with io.BytesIO(file_bytes) as docx_file:
+            doc = docx.Document(docx_file)
+            return {1: "\n".join([para.text for para in doc.paragraphs])}
 
-    print(f"📄 [VECTOR] {len(documents)} pages extracted")
-
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    chunks = splitter.split_documents(documents)
-    print(f"✂️ [VECTOR] {len(chunks)} chunks generated")
-
-    embeddings = get_embeddings_model()
-    vectorstore = FAISS.from_documents(chunks, embeddings)
-    print("✅ [VECTOR] Vector store created")
-
-    return vectorstore
+    logging.error(f"Unsupported file type: {file_ext}")
+    return {}

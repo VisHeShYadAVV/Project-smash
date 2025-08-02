@@ -1,4 +1,5 @@
 # app.py
+
 import streamlit as st
 import os
 import asyncio
@@ -22,9 +23,6 @@ if not os.path.exists(FAISS_INDEX_PATH):
     os.makedirs(FAISS_INDEX_PATH)
 
 async def main():
-    """
-    The main async function that runs the Streamlit UI and handles logic.
-    """
     st.set_page_config(page_title="Intelligent Query-Retrieval System", layout="wide")
     st.title("🧠 Intelligent Query-Retrieval System")
 
@@ -34,62 +32,63 @@ async def main():
         st.header("1. Process Document")
 
         openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not openai_api_key or "your_actual_openai_key_here" in openai_api_key:
-            st.error("OpenAI API Key not found or is a placeholder. Please set it in your .env file.")
+        if not openai_api_key:
+            st.error("❌ OpenAI API Key not found in environment. Please set it in your .env file.")
             st.stop()
         else:
-            st.success("✅ OpenAI API Key loaded.")
-            os.environ["OPENAI_API_KEY"] = openai_api_key 
+            os.environ["OPENAI_API_KEY"] = openai_api_key
+            st.success("✅ OpenAI API Key loaded successfully.")
 
         uploaded_file = st.file_uploader(
-            "Upload your document (PDF, DOCX)",
+            "Upload your document (PDF or DOCX)",
             type=["pdf", "docx"]
         )
 
         if st.button("Process Document"):
             if uploaded_file is None:
-                st.warning("Please upload a document first.")
+                st.warning("⚠️ Please upload a document first.")
             else:
                 index_name = f"{uploaded_file.name}_{uploaded_file.size}"
                 local_index_path = os.path.join(FAISS_INDEX_PATH, index_name)
 
-                with st.spinner("Processing document... Please wait."):
+                with st.spinner("⚙️ Processing document..."):
                     try:
                         embeddings = get_embeddings_model()
+
                         if os.path.exists(local_index_path):
-                            st.info("Loading existing vector store from disk...")
+                            st.info("📦 Loading existing vector store from disk...")
                             st.session_state.vector_store = FAISS.load_local(
                                 local_index_path,
                                 embeddings,
                                 allow_dangerous_deserialization=True
                             )
-                            st.success("Vector store loaded successfully!")
+                            st.success("✅ Vector store loaded successfully!")
                         else:
-                            st.info("No existing store found. Building a new one...")
+                            st.info("📚 Building new vector store...")
                             file_bytes = uploaded_file.getvalue()
                             st.session_state.vector_store = await build_vector_store(
                                 file_bytes, uploaded_file.name
                             )
                             st.session_state.vector_store.save_local(local_index_path)
-                            st.success("Document processed and vector store saved!")
+                            st.success("✅ Document processed and saved!")
 
                         st.session_state.doc_processed = True
                         st.rerun()
 
                     except Exception as e:
-                        st.error(f"\u274c Error: {e}")
-                        st.text("\ud83d\udcc4 Full traceback:")
+                        st.error("❌ Error processing document:")
                         st.text(traceback.format_exc())
+                        logging.error(f"[ERROR] Vector store creation: {e}")
 
     st.header("2. Ask Questions")
 
     if not st.session_state.get("doc_processed"):
-        st.info("Please upload and process a document to begin.")
+        st.info("ℹ️ Please process a document first to enable Q&A.")
     else:
         questions_input = st.text_area(
             "Enter your questions, one per line:",
             height=250,
-            placeholder="What is the grace period for premium payment?\nWhat is the waiting period for pre-existing diseases?\nDoes this policy cover maternity expenses?"
+            placeholder="e.g.\nWhat is the grace period?\nIs maternity covered?\nWaiting period for PED?"
         )
 
         if st.button("Get Answers"):
@@ -97,29 +96,34 @@ async def main():
                 questions_list = [q.strip() for q in questions_input.split('\n') if q.strip()]
 
                 if questions_list:
-                    with st.spinner("Finding answers... This may take a moment."):
+                    with st.spinner("🧠 Getting answers..."):
                         try:
+                            print("🔍 Questions:", questions_list)
                             json_response = await get_answers_as_json(
                                 questions_list,
                                 st.session_state.vector_store
                             )
+                            print("✅ Response:", json_response)
                             st.session_state.last_response = json_response
                         except Exception as e:
-                            st.error(f"\u274c Error generating response: {e}")
+                            st.error("❌ Error generating response:")
                             st.text(traceback.format_exc())
-                            logging.error(f"Error getting answers: {e}")
+                            logging.error(f"[ERROR] Answer generation: {e}")
                 else:
-                    st.warning("Please enter at least one question.")
+                    st.warning("⚠️ Please enter at least one valid question.")
             else:
-                st.warning("Please enter your questions.")
+                st.warning("⚠️ You must enter questions and upload a document.")
 
         if st.session_state.get("last_response"):
-            st.subheader("JSON Response:")
-            st.json(st.session_state.last_response)
+            st.subheader("📝 Answers:")
+            for q, a in zip(questions_list, st.session_state.last_response["answers"]):
+                st.markdown(f"**Q:** {q}")
+                st.markdown(f"**A:** {a}")
+                st.markdown("---")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception as e:
-        logging.critical(f"Failed to run the Streamlit app: {e}")
-        st.error(f"A critical error occurred: {e}")
+        logging.critical(f"🚨 Failed to launch Streamlit app: {e}")
+        st.error(f"Critical error: {e}")
